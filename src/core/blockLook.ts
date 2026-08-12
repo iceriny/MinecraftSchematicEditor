@@ -245,6 +245,14 @@ const COLORS: Record<string, number> = {
   furnace: 0x6b6b6b,
   chest: 0x8b6a2f,
   barrel: 0x6b5232,
+  // Heads are block entities, so nothing in the pack says what colour they are.
+  skeleton_skull: 0xc9c6b6,
+  wither_skeleton_skull: 0x2f3033,
+  zombie_head: 0x4f7a3f,
+  creeper_head: 0x74b444,
+  dragon_head: 0x1b1620,
+  player_head: 0xb07f5b,
+  piglin_head: 0xea9a94,
   ladder: 0x7b5b33,
   scaffolding: 0xc7a458,
   iron_bars: 0x7b7b7b,
@@ -466,6 +474,9 @@ function colorFor(id: string, depth = 0): number {
       }
       return colorFor(stem, depth + 1);
     }
+    // `skeleton_wall_skull` -> `skeleton_skull`. The mounted variant of a thing
+    // is the same thing, hung on a wall, and always shares its colour.
+    if (id.includes("_wall_")) return colorFor(id.replace("_wall_", "_"), depth + 1);
     if (id.startsWith("infested_")) return colorFor(id.slice(9), depth + 1);
     if (id.startsWith("waxed_")) return colorFor(id.slice(6), depth + 1);
     if (id.startsWith("cut_") || id.startsWith("smooth_") || id.startsWith("polished_")) {
@@ -573,6 +584,30 @@ function standingSignBoxes(onZ: boolean): Box[] {
       ? [0, 9 / 16, 7 / 16, 1, 1, 9 / 16]
       : [7 / 16, 9 / 16, 0, 9 / 16, 1, 1],
   ];
+}
+
+/** A head, skull or conduit: a small cube floating in the middle of the cell. */
+const SMALL_CUBE: Box = [4 / 16, 0, 4 / 16, 12 / 16, 8 / 16, 12 / 16];
+
+/** Banner cloth, and the post it hangs off. */
+function bannerBoxes(onZ: boolean): Box[] {
+  return [
+    [7 / 16, 0, 7 / 16, 9 / 16, 1, 9 / 16],
+    onZ
+      ? [1 / 16, 4 / 16, 7 / 16, 15 / 16, 1, 9 / 16]
+      : [7 / 16, 4 / 16, 1 / 16, 9 / 16, 1, 15 / 16],
+  ];
+}
+
+/** The two legs at a bed's outer end — the head end, or the foot end. */
+function bedLegs(side: string): Box[] {
+  const t = 3 / 16, h = 3 / 16;
+  switch (side) {
+    case "north": return [[0, 0, 0, t, h, t], [1 - t, 0, 0, 1, h, t]];
+    case "south": return [[0, 0, 1 - t, t, h, 1], [1 - t, 0, 1 - t, 1, h, 1]];
+    case "west": return [[0, 0, 0, t, h, t], [0, 0, 1 - t, t, h, 1]];
+    default: return [[1 - t, 0, 0, 1, h, t], [1 - t, 0, 1 - t, 1, h, 1]];
+  }
 }
 
 /** The bar it hangs from, and the board swinging under it. */
@@ -695,6 +730,39 @@ function shapeFor(id: string, props: Record<string, string> | undefined): { boxe
   }
   if (id.endsWith("_sign")) {
     return { boxes: standingSignBoxes(boardOnZ(props?.rotation)), solid: false };
+  }
+
+  // The rest of the block entities, drawn from a mesh the pack never describes.
+  if (id.endsWith("_wall_banner")) {
+    return { boxes: [backingBox(props?.facing, 2 / 16, 0, 14 / 16)], solid: false };
+  }
+  if (id.endsWith("_banner")) {
+    return { boxes: bannerBoxes(boardOnZ(props?.rotation)), solid: false };
+  }
+  if (id.endsWith("_bed")) {
+    // Legs go on the outer end: the head's is the way it faces, the foot's the
+    // way it came from.
+    const facing = props?.facing ?? "north";
+    const outer = props?.part === "head" ? facing : OPPOSITE[facing] ?? "south";
+    return {
+      boxes: [[0, 3 / 16, 0, 1, 9 / 16, 1], ...bedLegs(outer)],
+      solid: false,
+    };
+  }
+  if (id.endsWith("_wall_skull") || id.endsWith("_wall_head")) {
+    // Mounted at head height on the block behind it.
+    return {
+      boxes: [overlap(backingBox(props?.facing, 8 / 16), [4 / 16, 4 / 16, 4 / 16, 12 / 16, 12 / 16, 12 / 16])],
+      solid: false,
+    };
+  }
+  // `piston_head` is not a head — it has a real model, and catching it here
+  // would replace a piston's arm with a skull.
+  if (id !== "piston_head" && (id.endsWith("_skull") || id.endsWith("_head"))) {
+    return { boxes: [SMALL_CUBE], solid: false };
+  }
+  if (id === "conduit") {
+    return { boxes: [[5 / 16, 5 / 16, 5 / 16, 11 / 16, 11 / 16, 11 / 16]], solid: false };
   }
   if (id === "cactus") return { boxes: [[1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16]], solid: false };
   if (id === "chest" || id === "trapped_chest" || id === "ender_chest") {
