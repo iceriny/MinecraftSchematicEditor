@@ -14,9 +14,11 @@
 
 import * as THREE from "three";
 import { baseName, type BlockState, type Build } from "../core/model";
-import { lookFor } from "../core/blockLook";
+import { FULL_BOX, lookFor, type Box } from "../core/blockLook";
 import type { ElementDef, FaceName, ResourcePack } from "../assets/pack";
-import { resolveState, resolveTexture, type FlatModel, type Placement } from "../assets/modelResolver";
+import {
+  particleTexture, resolveState, resolveTexture, type FlatModel, type Placement,
+} from "../assets/modelResolver";
 import { GRAIN_LAYER, TextureArrayBuilder } from "../assets/textures";
 import { tintFor } from "./tint";
 
@@ -342,20 +344,44 @@ const FLUID_TEXTURES: Record<string, string> = {
 };
 
 function fluidModel(texture: string): FlatModel {
-  const face = (cullface: FaceName) => ({ texture: "#all", cullface, tintindex: 0 });
+  return boxModel(texture, [FULL_BOX]);
+}
+
+/**
+ * A model built from the built-in box table and painted with one texture, for
+ * the blocks the pack describes but never draws — the block entities. It gives
+ * a sign the shape this app knows and the wood the pack knows, which together
+ * are much closer to the block than a flat-coloured stand-in.
+ *
+ * Only a face flush with the edge of the cell claims a `cullface`: an inner
+ * face of a small box is never hidden by the neighbour, and saying otherwise
+ * would open holes in it.
+ */
+function boxModel(texture: string, boxes: readonly Box[]): FlatModel {
   return {
     textures: { all: texture },
     ambientocclusion: true,
-    elements: [
-      {
-        from: [0, 0, 0],
-        to: [16, 16, 16],
+    elements: boxes.map((box) => {
+      const from: [number, number, number] = [box[0] * 16, box[1] * 16, box[2] * 16];
+      const to: [number, number, number] = [box[3] * 16, box[4] * 16, box[5] * 16];
+      const face = (flush: boolean, cullface: FaceName) => ({
+        texture: "#all",
+        tintindex: 0,
+        ...(flush ? { cullface } : {}),
+      });
+      return {
+        from,
+        to,
         faces: {
-          down: face("down"), up: face("up"), north: face("north"),
-          south: face("south"), west: face("west"), east: face("east"),
+          down: face(from[1] <= 0, "down"),
+          up: face(to[1] >= 16, "up"),
+          north: face(from[2] <= 0, "north"),
+          south: face(to[2] >= 16, "south"),
+          west: face(from[0] <= 0, "west"),
+          east: face(to[0] >= 16, "east"),
         },
-      },
-    ],
+      };
+    }),
   };
 }
 
@@ -394,6 +420,16 @@ export async function bakePalette(build: Build, pack: ResourcePack | null): Prom
     const fluid = FLUID_TEXTURES[id];
     if (!resolved && pack && fluid && pack.textures.has(fluid)) {
       resolved = [[{ model: fluidModel(fluid), x: 0, y: 0, uvlock: false }]];
+    }
+
+    // A block entity: the pack knows the block and what it is made of, but has
+    // no geometry for it. Ours plus its texture beats a flat colour.
+    if (!resolved && pack) {
+      const particle = particleTexture(pack, state, modelCache);
+      if (particle && pack.textures.has(particle)) {
+        const look = lookFor(state);
+        resolved = [[{ model: boxModel(particle, look.boxes), x: 0, y: 0, uvlock: false }]];
+      }
     }
 
     if (!resolved) {

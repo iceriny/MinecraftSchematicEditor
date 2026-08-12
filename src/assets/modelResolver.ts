@@ -183,6 +183,46 @@ function toPlacements(
   return out;
 }
 
+/**
+ * The texture a block entity is made of.
+ *
+ * Signs, beds, banners, heads and chests are drawn by the game from a
+ * hand-written mesh, so their models carry no elements and resolve to nothing.
+ * What those models do carry is `particle` — the texture the game throws when
+ * you break the block — and that names the material: oak planks for an oak
+ * sign, wool for a bed. It is the only thing in the pack that says what the
+ * block is made of, so it is what a stand-in should be painted with.
+ */
+export function particleTexture(
+  pack: ResourcePack,
+  state: BlockState,
+  cache: Map<string, FlatModel>,
+): string | null {
+  const def = pack.blockstates.get(normalizeName(state.name));
+  if (!def) return null;
+
+  const models: string[] = [];
+  if (def.variants) {
+    for (const apply of Object.values(def.variants)) {
+      const first = Array.isArray(apply) ? apply[0] : apply;
+      if (first?.model) models.push(first.model);
+    }
+  }
+  if (def.multipart) {
+    for (const part of def.multipart) {
+      const first = Array.isArray(part.apply) ? part.apply[0] : part.apply;
+      if (first?.model) models.push(first.model);
+    }
+  }
+
+  for (const model of models) {
+    const particle = flatten(pack, model, cache).textures.particle;
+    // An unresolved `#variable` names nothing that can be drawn.
+    if (particle && !particle.startsWith("#")) return qualify(particle);
+  }
+  return null;
+}
+
 /** Resolves a blockstate to the parts that draw it, or null if unknown. */
 export function resolveState(
   pack: ResourcePack,

@@ -589,11 +589,17 @@ export function orientToFace(
   normal: Direction,
   forward: Direction,
 ): BlockState {
-  const orientation = orientationOf(state);
-  if (!orientation) return state;
+  const up = Math.sign(normal[1]);
+  // A sign, torch or banner is two blocks in the game, and one item: the face
+  // you click chooses which. That is a change of block, not of a property, so
+  // it happens before the turning does.
+  const swap = up === 0 ? wallVariant(state.name) : floorVariant(state.name);
+  const placed = swap ? retarget(state, swap) : state;
+
+  const orientation = orientationOf(placed);
+  if (!orientation) return placed;
   const { props, face } = orientation;
 
-  const up = Math.sign(normal[1]);
   const patch: Record<string, string> = {};
 
   if (face.axis) patch.axis = up !== 0 ? "y" : Math.sign(normal[0]) !== 0 ? "x" : "z";
@@ -627,7 +633,7 @@ export function orientToFace(
     if (front) patch.rotation = ROTATION_BY_FACING[front];
   }
 
-  let next = state;
+  let next = placed;
   for (const [key, value] of Object.entries(patch)) {
     if (!offers(props, key, value)) continue;
     next = withProperty(next, key, value);
@@ -638,4 +644,65 @@ export function orientToFace(
 function offers(props: OrientProp[], key: string, value: string): boolean {
   const prop = props.find((entry) => entry.key === key);
   return !!prop && prop.values.some((option) => option.value === value);
+}
+
+/* ------------------------------------------------------- wall and floor */
+
+/**
+ * The blocks the game splits into a pair of ids — one standing on the floor or
+ * hanging from a ceiling, the other mounted on a wall — placed from a single
+ * item. Clicking the side of a block gives you the wall one; clicking the top
+ * gives you the standing one. A trapdoor picks its half the same way, except
+ * that a trapdoor is one block and these are two, so nothing short of changing
+ * the block will do it.
+ *
+ * Longest suffix first: `oak_hanging_sign` must be caught before `_sign`.
+ */
+const WALL_PAIRS: [floor: string, wall: string][] = [
+  ["_hanging_sign", "_wall_hanging_sign"],
+  ["_sign", "_wall_sign"],
+  ["_banner", "_wall_banner"],
+  ["_coral_fan", "_coral_wall_fan"],
+  ["_skull", "_wall_skull"],
+  ["_head", "_wall_head"],
+  ["torch", "wall_torch"],
+];
+
+/** The wall-mounted id for a block that has one. */
+function wallVariant(name: string): string | null {
+  const id = baseName(name);
+  // `redstone_wall_torch` already ends with `torch`, and a piston's arm is not
+  // a head however much its name looks like one.
+  if (WALL_MOUNTED.test(id) || id === "piston_head") return null;
+  for (const [floor, wall] of WALL_PAIRS) {
+    if (name.endsWith(floor)) return name.slice(0, -floor.length) + wall;
+  }
+  return null;
+}
+
+/** The standing id for a wall-mounted block. */
+function floorVariant(name: string): string | null {
+  for (const [floor, wall] of WALL_PAIRS) {
+    if (name.endsWith(wall)) return name.slice(0, -wall.length) + floor;
+  }
+  return null;
+}
+
+/**
+ * Moves to the other block of a pair, keeping only the properties the new one
+ * actually has — a wall sign has no `rotation` to inherit, and writing one
+ * would make a blockstate the game has never heard of.
+ */
+function retarget(state: BlockState, name: string): BlockState {
+  const next: BlockState = { name };
+  const orientation = orientationOf(next);
+  if (!orientation || !state.properties) return next;
+  const keep: Record<string, string> = {};
+  for (const prop of orientation.props) {
+    const value = state.properties[prop.key];
+    if (value !== undefined && prop.values.some((option) => option.value === value)) {
+      keep[prop.key] = value;
+    }
+  }
+  return Object.keys(keep).length > 0 ? { name, properties: keep } : next;
 }
