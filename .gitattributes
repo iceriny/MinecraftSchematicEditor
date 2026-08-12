@@ -1,0 +1,10 @@
+# Text files are stored with LF and checked out however the platform wants,
+# so a Windows contributor and a Linux one don't hand each other a diff that
+# rewrites every line.
+* text=auto eol=lf
+
+# Schematics are NBT: binary, and gzipped. Never touch the line endings.
+*.litematic binary
+*.schem     binary
+*.schematic binary
+*.nbt       binary
