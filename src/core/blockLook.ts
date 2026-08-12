@@ -539,8 +539,53 @@ function sideBox(facing: string, depth: number, y0 = 0, y1 = 1): Box {
  * Doors, ladders and open trapdoors face away from the surface they hang on,
  * so their geometry sits on the side opposite `facing`.
  */
-function backingBox(facing: string | undefined, depth: number): Box {
-  return sideBox(OPPOSITE[facing ?? "north"] ?? "south", depth);
+function backingBox(facing: string | undefined, depth: number, y0 = 0, y1 = 1): Box {
+  return sideBox(OPPOSITE[facing ?? "north"] ?? "south", depth, y0, y1);
+}
+
+/* ------------------------------------------------------------------ signs */
+
+/*
+   Signs are block entities. Their block model carries a particle texture and
+   no elements at all — the game draws them from a hand-written mesh — so the
+   model pipeline resolves them to nothing and both the textured and untextured
+   paths land here. Without these boxes a sign is a full solid cube, which also
+   made it occlude its neighbours.
+*/
+
+/** The stake a standing sign is nailed to. */
+const SIGN_POST: Box = [7 / 16, 0, 7 / 16, 9 / 16, 9 / 16, 9 / 16];
+
+/**
+ * Sign rotation is 16 steps of 22.5°, counted clockwise from south. A box can
+ * only be square to the grid, so the eighth-turns are called by whichever
+ * quarter they are nearer — the board still reads as facing the right way.
+ */
+function boardOnZ(rotation: string | undefined): boolean {
+  return Math.round(Number(rotation ?? 0) / 4) % 2 === 0;
+}
+
+/** Post, and the board across the top of it. */
+function standingSignBoxes(onZ: boolean): Box[] {
+  return [
+    SIGN_POST,
+    onZ
+      ? [0, 9 / 16, 7 / 16, 1, 1, 9 / 16]
+      : [7 / 16, 9 / 16, 0, 9 / 16, 1, 1],
+  ];
+}
+
+/** The bar it hangs from, and the board swinging under it. */
+function hangingSignBoxes(onZ: boolean): Box[] {
+  return onZ
+    ? [
+        [1 / 16, 14 / 16, 7 / 16, 15 / 16, 1, 9 / 16],
+        [3 / 16, 2 / 16, 7 / 16, 13 / 16, 12 / 16, 9 / 16],
+      ]
+    : [
+        [7 / 16, 14 / 16, 1 / 16, 9 / 16, 1, 15 / 16],
+        [7 / 16, 2 / 16, 3 / 16, 9 / 16, 12 / 16, 13 / 16],
+      ];
 }
 
 /** A quarter turn clockwise about Y — the side a `_right` shape names. */
@@ -632,6 +677,24 @@ function shapeFor(id: string, props: Record<string, string> | undefined): { boxe
   }
   if (id.endsWith("_button")) {
     return { boxes: [[5 / 16, 0, 6 / 16, 11 / 16, 2 / 16, 10 / 16]], solid: false };
+  }
+  // Longest suffix first: `oak_wall_sign` also ends with `_sign`.
+  if (id.endsWith("_wall_hanging_sign")) {
+    const facing = props?.facing ?? "north";
+    return { boxes: hangingSignBoxes(facing === "north" || facing === "south"), solid: false };
+  }
+  if (id.endsWith("_hanging_sign")) {
+    return { boxes: hangingSignBoxes(boardOnZ(props?.rotation)), solid: false };
+  }
+  if (id.endsWith("_wall_sign")) {
+    // Flat against the block behind it, at head height rather than full width.
+    return {
+      boxes: [backingBox(props?.facing, 2 / 16, 4.5 / 16, 12.5 / 16)],
+      solid: false,
+    };
+  }
+  if (id.endsWith("_sign")) {
+    return { boxes: standingSignBoxes(boardOnZ(props?.rotation)), solid: false };
   }
   if (id === "cactus") return { boxes: [[1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16]], solid: false };
   if (id === "chest" || id === "trapped_chest" || id === "ender_chest") {
