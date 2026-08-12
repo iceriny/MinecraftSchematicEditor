@@ -9,6 +9,12 @@ Everything runs locally. Files are parsed in the browser and never uploaded.
 The build you have open is snapshotted to the browser's own storage as you
 work, so closing the tab by accident doesn't cost the session.
 
+**[Try it →](https://faraway24.github.io/MinecraftSchematicEditor/)** Nothing to
+install. The hosted copy can't reach your Minecraft folder the way the dev
+server can, so it starts in colour-accurate blocks; drop a client `.jar` or a
+resource-pack `.zip` on **Add textures** in the top bar for the real thing, and
+it's remembered from then on.
+
 ## Run it
 
 Node 20.19+ or 22.12+, and a browser with WebGL2. A Minecraft install is *not*
