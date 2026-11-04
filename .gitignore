@@ -3,3 +3,9 @@ dist/
 .playwright-mcp/
 *.local
 .DS_Store
+
+# Per-machine launcher settings and runtime outputs.
+/local-server.local.json
+/run.local/
+/coverage/
+*.log

@@ -38,6 +38,8 @@ codex mcp add minecraft-schematic-editor -- node (Resolve-Path 'mcp/launch.mjs')
 
 ## 工具
 
+Windows 后台运行方式见 [本地启停说明](../本地使用说明.md)。
+
 | 工具 | 用途 |
 | --- | --- |
 | `schematic_status` | 查看进程内建筑状态和浏览器连接 ID |

@@ -29,6 +29,9 @@ npm run build      # production bundle in dist/
 npm run typecheck
 ```
 
+On Windows, the [background start/stop launchers](本地使用说明.md) also work
+from any checkout location and support per-machine Minecraft paths.
+
 For programmatic editing, the [local MCP server](mcp/README.md) can read and
 write schematics over stdio, edit the active browser document, and render
 multi-angle or cutaway previews.
