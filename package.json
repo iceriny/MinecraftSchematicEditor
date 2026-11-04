@@ -13,6 +13,7 @@
     "preview": "vite preview --port 4173",
     "typecheck": "tsc --noEmit",
     "mcp": "node mcp/launch.mjs",
+    "check:setup": "node scripts/check-setup.mjs",
     "test:mcp": "node --import tsx --test src/automation/engine.test.ts src/automation/capture-region.test.ts mcp/server.test.ts mcp/save.test.ts mcp/resources.test.ts scripts/mcp-bridge-plugin.test.ts",
     "sample": "node scripts/make-sample.mjs && node scripts/make-orientation-test.mjs"
   },

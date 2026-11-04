@@ -1,9 +1,11 @@
 # Windows 本地启停
 
+[English](windows.md) | 简体中文
+
 安装 Node.js 20.19+ 或 22.12+，在仓库目录执行一次 `npm ci`。双击入口优先使用 PATH 中的 PowerShell 7，否则使用 Windows PowerShell 5.1。
 
-- 双击 `启动投影编辑器.cmd`，后台启动服务并打开 <http://127.0.0.1:5173>。
-- 双击 `停止投影编辑器.cmd` 结束本仓库的后台服务。
+- 在仓库根目录双击 `start-editor.cmd`，后台启动服务并打开 <http://127.0.0.1:5173>。
+- 双击 `stop-editor.cmd` 结束本仓库的后台服务。
 - 关闭网页后服务继续运行，重启电脑后需再次启动。
 
 命令行也可以使用
@@ -35,4 +37,4 @@
 
 `local-server.local.json`、`run.local/`、依赖目录、构建产物和日志由 Git 忽略。浏览器中的材质缓存和自动暂存保存在浏览器数据中。
 
-工具操作与文件格式见 [README](README.md)。AI 编辑及预览接入见 [MCP 使用说明](mcp/README.md)。
+工具操作与文件格式见 [README](../README.zh-CN.md)。AI 编辑及预览接入见 [MCP 使用说明](../mcp/README.zh-CN.md)。
