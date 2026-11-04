@@ -49,6 +49,12 @@ One batch allows 128 operations and one million changed cells; set/paint accept 
 
 Read [workflow examples](references/workflows.md) for parameters relevant to the task.
 
+## Block-state rules
+
+- Write properties that express placement intent explicitly. For example, set an upright end rod to `facing=up`. A preview can supply a different fallback from the game's block-specific default.
+- Derive neighbour-dependent properties from the finished layout, including neighbours across the edit boundary. After generation, rotation or mirroring, recompute affected joins with the target version's rules. For stairs, preserve the intended facing and half while deriving the corner shape. Verify the stored states in the exported schematic.
+- For functional assemblies, trace each connection from source to load using the installed version's input faces, output faces and axes. Set orientation per component and verify each interface. Report static connectivity checks separately from operation observed in game.
+
 ## Help open the webpage
 
 The local page is <http://127.0.0.1:5173>, served by this checkout's Vite process on the user's machine.
