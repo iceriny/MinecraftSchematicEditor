@@ -65,21 +65,28 @@ export function ModPacks() {
             <div className="eyebrow" style={{ padding: "2px 10px 6px" }}>
               {instance.mods.length} jars — only the ones that add blocks will load
             </div>
-            {instance.mods.map((mod) => (
-              <button
-                key={mod.file}
-                className="pack-menu-item"
-                data-current={loadedFiles.has(mod.file)}
-                role="menuitem"
-                onClick={() => {
-                  close();
-                  void useStore.getState().addInstanceMod(instance.id, mod.file);
-                }}
-              >
-                <span>{mod.file.replace(/\.jar$/i, "")}</span>
-                <span className="num">{Math.round(mod.size / 1024 / 1024)} MB</span>
-              </button>
-            ))}
+            {instance.mods.map((mod) => {
+              const loaded = loadedFiles.has(mod.file);
+              return (
+                <button
+                  key={mod.file}
+                  className="pack-menu-item"
+                  data-current={loaded}
+                  role="menuitemcheckbox"
+                  aria-checked={loaded}
+                  disabled={loading}
+                  title={loaded ? `Remove ${mod.file}` : `Add ${mod.file}`}
+                  onClick={() => {
+                    const store = useStore.getState();
+                    if (loaded) void store.removeModPack(mod.file);
+                    else void store.addInstanceMod(instance.id, mod.file);
+                  }}
+                >
+                  <span>{mod.file.replace(/\.jar$/i, "")}</span>
+                  <span className="num">{loaded ? "✓" : `${Math.round(mod.size / 1024 / 1024)} MB`}</span>
+                </button>
+              );
+            })}
           </>
         ) : (
           <>
@@ -96,6 +103,7 @@ export function ModPacks() {
                   className="btn pack-more"
                   title={`Remove ${mod.file}`}
                   aria-label={`Remove ${mod.label}`}
+                  disabled={loading}
                   onClick={() => void useStore.getState().removeModPack(mod.file)}
                 >
                   <IconClose size={12} />
