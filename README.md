@@ -36,6 +36,9 @@ For programmatic editing, the [local MCP server](mcp/README.md) can read and
 write schematics over stdio, edit the active browser document, and render
 multi-angle or cutaway previews.
 
+Agents can use the bundled [minecraft-schematic-editor skill](skills/minecraft-schematic-editor/SKILL.md)
+for mode selection, tool workflows, browser setup and format limitations.
+
 ## Formats
 
 | Extension     | Written by                     | Read | Write |

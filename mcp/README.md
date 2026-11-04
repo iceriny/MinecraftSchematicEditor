@@ -2,6 +2,8 @@
 
 由 AI 直接编辑 Minecraft 建筑数据，支持新建、读取、检查、批量修改、撤销与导出；可将结果交给本地网页显示，也能直接修改网页当前建筑。
 
+面向 Agent 的使用流程、能力边界与网页联动见仓库内 [minecraft-schematic-editor Skill](../skills/minecraft-schematic-editor/SKILL.md)。支持根目录插件清单的宿主可发现随插件提供的 `skills/`。手动安装时，将 `skills/minecraft-schematic-editor` 整个目录复制到宿主的技能目录，另按下节配置 MCP 连接。
+
 ## 运行与接入
 
 在项目根目录安装依赖并启动服务：

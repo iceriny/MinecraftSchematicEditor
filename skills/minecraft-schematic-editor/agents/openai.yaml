@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft Schematic Editor"
+  short_description: "用 MCP 制作和编辑 Minecraft 投影，联动网页并查看实景剖面"
+  default_prompt: "使用 $minecraft-schematic-editor 编辑我的 Minecraft 投影，并在网页中展示局部与外观预览。"
