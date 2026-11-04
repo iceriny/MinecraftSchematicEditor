@@ -46,6 +46,10 @@ Call `schematic_status({"target":"browser"})` in this chat. If clients are empty
 
 Minecraft assets are optional. Use `schematic_resources` to discover actual versions and instances. For nonstandard installations, configure the user's supplied directories using the [Windows settings](windows.md) or environment variables described in the [editor guide](editor-guide.md). Load resources matching the intended game version.
 
+If several instances match, offer a short list of discovered names/versions for the user to choose. If the intended instance is missing, ask which launcher they use and for the instance name or folder path. Reuse a path or selection already provided.
+
+Explain that the launcher usually has an “Open game folder” or “Open instance folder” action. Base textures need the Minecraft root containing `versions`; mod discovery needs the parent containing individual instance directories with `mods`. If given a single instance folder, inspect its `mods` and parent, derive the settings, and verify the resulting resource list. Ask again only if the layout remains unclear.
+
 ## Verify the workflow and hand off
 
 For a harmless preview check, open `public/samples/cottage.litematic` in a new browser document and call `schematic_capture`. Preserve existing user documents. Close only the sample document you opened, returning to the user's prior tab.

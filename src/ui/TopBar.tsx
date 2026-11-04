@@ -28,7 +28,7 @@ export function TopBar() {
 
   return (
     <header className="topbar">
-      <div className="mark">
+      <div className="mark" data-native-context-menu>
         <Mark />
         <span className="mark-text">Schematic</span>
       </div>

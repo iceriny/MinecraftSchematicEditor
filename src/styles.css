@@ -506,7 +506,8 @@ button, input, select { font: inherit; color: inherit; }
 }
 
 .viewer { position: absolute; inset: 0; }
-.viewer canvas { display: block; }
+/* The drawing buffer uses device pixels; both visible layers use CSS pixels. */
+.viewer canvas { display: block; width: 100%; height: 100%; }
 
 .viewer-labels {
   position: absolute;
@@ -542,6 +543,15 @@ button, input, select { font: inherit; color: inherit; }
 .dim-x { color: var(--axis-x); }
 .dim-y { color: var(--axis-y); }
 .dim-z { color: var(--axis-z); }
+
+.dim-frame-label { width: 0; height: 0; }
+.dim-frame-label > .dim-label {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 6px));
+}
+.dim-frame-y > .dim-label {
+  transform: translate(calc(-100% - 6px), -50%);
+}
 
 /* The ruler's own figure, which belongs to no single axis. */
 .dim-rule {

@@ -643,21 +643,18 @@ export class Viewer {
         line: (t: number) => v(t, -off, oz),
         tick: v(0, -1, 0),
         anchor: (t: number) => v(t, 0, nearZ ? l : 0),
-        away: v(0, -1, outZ * 0.5),
       },
       {
         key: "z" as const, span: l,
         line: (t: number) => v(ox, -off, t),
         tick: v(0, -1, 0),
         anchor: (t: number) => v(nearX ? w : 0, 0, t),
-        away: v(outX * 0.5, -1, 0),
       },
       {
         key: "y" as const, span: h,
         line: (t: number) => v(ox, t, oz),
         tick: v(outX, 0, outZ).normalize(),
         anchor: (t: number) => v(nearX ? w : 0, t, nearZ ? l : 0),
-        away: v(outX, 0, outZ).normalize(),
       },
     ];
 
@@ -671,8 +668,13 @@ export class Viewer {
         push(at, axis.anchor(t), faint);
       }
 
-      const text = label(`${axis.span}`, `dim-label dim-${axis.key}`);
-      text.position.copy(axis.line(axis.span / 2)).addScaledVector(axis.away, off * 0.75);
+      const text = label("", `dim-frame-label dim-frame-${axis.key}`);
+      const badge = document.createElement("span");
+      badge.className = `dim-label dim-${axis.key}`;
+      badge.textContent = `${axis.span}`;
+      text.element.appendChild(badge);
+      // Anchor to the line itself; CSS keeps a constant gap as the camera zooms.
+      text.position.copy(axis.line(axis.span / 2));
       this.frameGroup.add(text);
     }
 

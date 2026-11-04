@@ -117,6 +117,20 @@ export interface BuiltTextures {
 /** Layer 0 is always the fallback grain, so an untextured block still draws. */
 export const GRAIN_LAYER = 0;
 
+/** Keep each tile in its own layer so mipmaps never bleed across window frames. */
+function atlasTile(atlas: DecodedTexture, tile: number, columns: number): DecodedTexture {
+  const size = atlas.size / columns;
+  const rgba = new Uint8ClampedArray(size * size * 4);
+  const left = (tile % columns) * size, top = Math.floor(tile / columns) * size;
+  for (let y = 0; y < size; y++) {
+    const start = ((top + y) * atlas.size + left) * 4;
+    rgba.set(atlas.rgba.subarray(start, start + size * 4), y * size * 4);
+  }
+  let opaque = true;
+  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] !== 255) { opaque = false; break; }
+  return { size, rgba, opaque };
+}
+
 /**
  * Collects texture paths on demand while models are baked, then decodes only
  * the ones actually used — a client jar holds ~1200 block textures and a build
@@ -125,12 +139,25 @@ export const GRAIN_LAYER = 0;
 export class TextureArrayBuilder {
   private order: string[] = [];
   private index = new Map<string, number>();
+  private tiles = new Map<string, { atlas: string; base: string; index: number; columns: number }>();
 
   constructor(private pack: ResourcePack | null) {}
 
   /** Returns the layer for a texture path, reserving one if it is new. */
   layerFor(path: string | null): number {
     if (!path || !this.pack?.textures.has(path)) return GRAIN_LAYER;
+    return this.reserve(path);
+  }
+
+  tileLayers(atlas: string, base: string, columns: number): number[] {
+    return Array.from({ length: columns * columns }, (_, index) => {
+      const key = `${atlas}#${columns}/${index}`;
+      this.tiles.set(key, { atlas, base, index, columns });
+      return this.reserve(key);
+    });
+  }
+
+  private reserve(path: string): number {
     const existing = this.index.get(path);
     if (existing !== undefined) return existing;
     const layer = this.order.length + 1;
@@ -140,10 +167,21 @@ export class TextureArrayBuilder {
   }
 
   async build(): Promise<BuiltTextures> {
+    const cache = new Map<string, Promise<DecodedTexture | null>>();
+    const decode = (path: string) => {
+      let result = cache.get(path);
+      if (!result) {
+        result = decodeTexture(this.pack!.textures.get(path)!);
+        cache.set(path, result);
+      }
+      return result;
+    };
     const decoded: (DecodedTexture | null)[] = await Promise.all(
-      this.order.map((path) => {
-        const bytes = this.pack!.textures.get(path)!;
-        return decodeTexture(bytes);
+      this.order.map(async path => {
+        const tile = this.tiles.get(path);
+        if (!tile) return decode(path);
+        const atlas = await decode(tile.atlas);
+        return atlas && atlas.size % tile.columns === 0 ? atlasTile(atlas, tile.index, tile.columns) : decode(tile.base);
       }),
     );
 

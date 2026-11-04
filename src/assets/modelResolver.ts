@@ -9,8 +9,11 @@
  */
 
 import { normalizeName, type BlockState } from "../core/model";
+import { readObj, type MeshFace } from "./wavefront";
+import { corroboratedRestPose } from "./kineticPartials";
 import {
   qualify,
+  type BlockstateDef,
   type Condition,
   type ElementDef,
   type ModelDef,
@@ -21,6 +24,7 @@ import {
 export interface FlatModel {
   textures: Record<string, string>;
   elements: ElementDef[];
+  mesh?: MeshFace[];
   ambientocclusion: boolean;
 }
 
@@ -43,29 +47,21 @@ const EMPTY: FlatModel = { textures: {}, elements: [], ambientocclusion: true };
 
 /* --------------------------------------------------------------- matching */
 
-/**
- * `lenient` treats a property the blockstate doesn't carry as satisfied. Used
- * as a second pass when strict matching finds nothing, which happens with
- * files that store bare block ids — every part of a wall's multipart is
- * conditional, so a property-less `stone_brick_wall` would otherwise vanish.
- */
 function matchesCondition(
   condition: Condition | undefined,
   props: Record<string, string>,
-  lenient: boolean,
 ): boolean {
   if (!condition) return true;
   const any = condition as { OR?: Condition[]; AND?: Condition[] };
-  if (any.OR) return any.OR.some((c) => matchesCondition(c, props, lenient));
-  if (any.AND) return any.AND.every((c) => matchesCondition(c, props, lenient));
+  if (any.OR) return any.OR.some((c) => matchesCondition(c, props));
+  if (any.AND) return any.AND.every((c) => matchesCondition(c, props));
   for (const key of Object.keys(condition)) {
     const expected = String((condition as Record<string, string>)[key]);
     const actual = props[key];
-    if (actual === undefined) {
-      if (lenient) continue;
-      return false;
-    }
-    if (!expected.split("|").includes(actual)) return false;
+    if (actual === undefined) return false;
+    const negative = expected.startsWith("!");
+    const choices = negative ? expected.slice(1) : expected;
+    if (choices.split("|").includes(actual) === negative) return false;
   }
   return true;
 }
@@ -92,6 +88,40 @@ const PROPERTY_DEFAULTS: Record<string, string> = {
   open: "false",
   powered: "false",
 };
+
+const multipartDefaults = new WeakMap<BlockstateDef, Record<string, string>>();
+
+/** Evaluate every part against one state, even when the file omits flags. */
+function multipartProperties(def: BlockstateDef, props: Record<string, string>): Record<string, string> {
+  let defaults = multipartDefaults.get(def);
+  if (!defaults) {
+    const domains = new Map<string, Set<string>>();
+    function collect(condition: Condition) {
+      for (const [key, term] of Object.entries(condition)) {
+        if (Array.isArray(term)) { term.forEach(collect); continue; }
+        const values = domains.get(key) ?? new Set<string>();
+        for (const value of String(term).replace(/^!/, "").split("|")) values.add(value);
+        domains.set(key, values);
+      }
+    }
+    for (const part of def.multipart ?? []) if (part.when) collect(part.when);
+    defaults = {};
+    // Wall sides use none/low/tall; an isolated wall has a central post.
+    const wall = ["north","east","south","west"].every(k =>
+      domains.get(k)?.has("low") && domains.get(k)?.has("tall"));
+    for (const [key, values] of domains) {
+      if (wall && key === "up") defaults[key] = "true";
+      else if ([...values].every(v => v === "false" || v === "true")) defaults[key] = "false";
+      else if (wall && values.has("low")) defaults[key] = "none";
+      else if (key in PROPERTY_DEFAULTS) defaults[key] = PROPERTY_DEFAULTS[key];
+      // An unfamiliar enum has no registry default in a resource pack. Use
+      // one declared value consistently rather than drawing exclusive shapes.
+      else defaults[key] = [...values][0];
+    }
+    multipartDefaults.set(def, defaults);
+  }
+  return { ...defaults, ...props };
+}
 
 /** A property the blockstate actually carries is worth more than a fallback. */
 const STATED = 2;
@@ -143,6 +173,9 @@ function flatten(pack: ResourcePack, path: string, cache: Map<string, FlatModel>
     // Vanilla takes elements from the nearest ancestor that declares them;
     // they are never merged across the chain.
     elements: def.elements ?? parent.elements,
+    mesh: def.loader === "neoforge:obj" && def.model
+      ? readObj(pack.wavefront, qualify(def.model), def.flip_v === true)
+      : def.elements ? undefined : parent.mesh,
     ambientocclusion: def.ambientocclusion ?? parent.ambientocclusion,
   };
   cache.set(key, model);
@@ -161,6 +194,76 @@ export function resolveTexture(textures: Record<string, string>, ref: string): s
   return null;
 }
 
+// Match what is drawn, including each face's material and UVs. Exporter
+// labels, JSON key order and #variable names may differ between the models.
+function elementKey(e: ElementDef, textures: FlatModel["textures"]): string {
+  const rotation = e.rotation;
+  const faces = Object.entries(e.faces).sort(([a], [b]) => a.localeCompare(b)).map(([side, f]) => [
+    side, resolveTexture(textures, f.texture), f.uv, f.rotation ?? 0, f.cullface, f.tintindex,
+  ]);
+  return JSON.stringify([e.from, e.to, e.shade !== false, rotation?.angle
+    ? [rotation.axis, rotation.angle, rotation.origin, !!rotation.rescale] : null, faces]);
+}
+
+/** Infer the unanimated pieces only when the item shares the world's frame of reference. */
+function restPoseParts(pack: ResourcePack, id: string, worldPath: string, cache: Map<string, FlatModel>): FlatModel {
+  const cacheKey = "@rest/" + id;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+  cache.set(cacheKey, EMPTY);
+  const [ns, name] = id.split(":");
+  const itemPath = ns + ":item/" + name;
+  if (!pack.models.has(itemPath)) return EMPTY;
+  const variants = pack.blockstates.get(id)?.variants;
+  if (!variants || !Object.entries(variants).every(([key, v]) =>
+    !Array.isArray(v) && v.model === worldPath &&
+    (!key || key.split(",").every(pair => /=(?:up|down|north|south|east|west|x|y|z)$/.test(pair) ||
+      /^waterlogged=(?:true|false)$/.test(pair))))) return EMPTY;
+
+  // Resolve an inherited model family too (e.g. differently coloured casings).
+  const seen = new Set<string>();
+  let hasRenderer = false;
+  for (let path: string | undefined = qualify(worldPath); path && !seen.has(path);) {
+    seen.add(path);
+    const [domain, local] = path.split(":");
+    if (local.split("/").slice(1).some(segment => pack.rendererFamilies.has(domain + ":" + segment)))
+      hasRenderer = true;
+    const parent: string | undefined = pack.models.get(path)?.parent;
+    path = parent ? qualify(parent) : undefined;
+  }
+  if (!hasRenderer) return EMPTY;
+  seen.clear();
+  for (let path: string | undefined = itemPath; path;) {
+    const def: ModelDef | undefined = pack.models.get(path);
+    if (!def || seen.has(path) || def.loader || def.overrides) return EMPTY;
+    seen.add(path);
+    path = def.parent ? qualify(def.parent) : undefined;
+  }
+
+  const base = flatten(pack, worldPath, cache);
+  const item = flatten(pack, itemPath, cache);
+  if (base.mesh?.length || !base.elements.length || item.elements.length <= base.elements.length) return EMPTY;
+  // Subtract a multiset, keeping the world's original faces for all shared elements.
+  let extra = [...item.elements];
+  const keys = extra.map(e => elementKey(e, item.textures));
+  for (const element of base.elements) {
+    const index = keys.indexOf(elementKey(element, base.textures));
+    if (index < 0) {
+      const partial = corroboratedRestPose(pack, worldPath, base, item, elementKey, seen);
+      if (!partial) return EMPTY;
+      extra = partial.elements;
+      break;
+    }
+    keys.splice(index, 1);
+    extra.splice(index, 1);
+  }
+  if (extra.some(e => Object.values(e.faces).some(f =>
+    !pack.textures.has(resolveTexture(item.textures, f.texture) ?? "")))) return EMPTY;
+  const result = { ...item, elements: extra };
+  cache.set(cacheKey, result);
+  return result;
+}
+
 /* ---------------------------------------------------------------- resolve */
 
 function toPlacements(
@@ -172,7 +275,7 @@ function toPlacements(
   const out: Placement[] = [];
   for (const option of options) {
     const model = flatten(pack, option.model, cache);
-    if (model.elements.length === 0) continue;
+    if (model.elements.length === 0 && !model.mesh?.length) continue;
     out.push({
       model,
       x: ((option.x ?? 0) % 360 + 360) % 360,
@@ -234,16 +337,14 @@ export function resolveState(
   const props = state.properties ?? {};
 
   if (def.multipart) {
-    for (const lenient of [false, true]) {
-      const parts: ResolvedState = [];
-      for (const part of def.multipart) {
-        if (!matchesCondition(part.when, props, lenient)) continue;
-        const placements = toPlacements(pack, part.apply, cache);
-        if (placements.length) parts.push(placements);
-      }
-      if (parts.length) return parts;
+    const parts: ResolvedState = [];
+    const effective = multipartProperties(def, props);
+    for (const part of def.multipart) {
+      if (!matchesCondition(part.when, effective)) continue;
+      const placements = toPlacements(pack, part.apply, cache);
+      if (placements.length) parts.push(placements);
     }
-    return null;
+    return parts.length ? parts : null;
   }
 
   if (!def.variants) return null;
@@ -257,6 +358,20 @@ export function resolveState(
     }
   }
   if (bestKey === null) return null;
-  const placements = toPlacements(pack, def.variants[bestKey], cache);
-  return placements.length ? [placements] : null;
+  const variant = def.variants[bestKey];
+  const placements = toPlacements(pack, variant, cache);
+  const parts = placements.length ? [placements] : [];
+  if (!Array.isArray(variant) && placements.length === 1) {
+    const extra = restPoseParts(pack, normalizeName(state.name), variant.model, cache);
+    if (extra.elements.length) parts.push([{ ...placements[0], model: extra }]);
+  }
+  if (state.name === "create:water_wheel") {
+    // Its blockstate supplies the stationary gearbox; Create renders this separate
+    // rotor at the same orientation in the block-entity renderer.
+    const options = (Array.isArray(variant) ? variant : [variant])
+      .map(option => ({...option, model: "create:block/water_wheel/wheel"}));
+    const rotor = toPlacements(pack, options, cache);
+    if (rotor.length) parts.push(rotor);
+  }
+  return parts.length ? parts : null;
 }

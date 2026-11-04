@@ -49,16 +49,16 @@ One batch allows 128 operations and one million changed cells; set/paint accept 
 
 Read [workflow examples](references/workflows.md) for parameters relevant to the task.
 
-## Block placement and behaviour rules
+## Review the build by intended use
 
-Start with the part's intended role in the build. Use the target version's state definitions and models for appearance, and its placement, survival and update logic for behaviour. Apply the following where the design depends on them.
+For a whole-build review, begin at the reported coordinates. Read the exact states and neighbouring cells, view the joint from a revealing angle, and identify the assembly and the job it is meant to do. Then examine the other districts, façades, interiors, furnishings, landscape and machinery within scope. Follow each cause into other uses, generators and rotated or mirrored copies. Also look for failure modes the initial example would never expose.
 
-- Write intended orientation, mounting face and occupied portion of the cell explicitly. Check the actual surfaces in a section through the joint. A bottom slab occupies `[Y, Y+0.5]` and a top slab `[Y+0.5, Y+1]`. A ridge cap must meet its beam and both slopes. Preserve designed overhangs and gaps. A renderer fallback can differ from the block's game default.
-- Judge visual contact by architectural intent. An ordinary slab stays where placed even with air underneath. For blocks with attachment requirements, check their specific placement and survival conditions. A hanging lantern tests the centre of the underside directly above it. Check collision clearance and player access separately for each working position.
-- Build all cells produced by normal placement of a multi-block part. For a door, pair its lower and upper halves and keep facing, hinge and open state consistent. Rotate or mirror the entire group, including offsets, axes and handedness. Derive neighbour-dependent shapes from the final layout on both sides of edit boundaries.
-- Identify which states the world will recompute on placement, neighbour change or a later tick. Where relevant, check support and substrate, gravity, fluid containment and waterlogging, signal sources and powered states, or environmental conditions such as light. Design for the intended stable state and any required transition or startup action.
-- Trace functional assemblies from source to load, checking both faces at every interface, compatible axes and the operating space. Distinguish palette properties from block-entity data, entities and scheduled updates. Verify what the selected exporter preserves and identify any assembly, filling or activation needed in game.
-- For repeated details, check the originating pattern and its rotated or mirrored instances. Re-read the affected states and their neighbours after export. Use a close section to check contact and clearance. Record in-game behaviour as verified only when observed.
+- Establish the design intent from the surroundings and build source. For example, an open trapdoor used as cladding must put its thin face against the intended wall. The same part used as a hatch needs a usable opening. Preserve purposeful gaps, overhangs and unconventional decorative uses.
+- Write placement intent explicitly and check the occupied space inside each cell. For a slab shelf, compare its actual top surface with the bottom of the object displayed on it. Inspect the seam in section. Assess visual contact, collision, and any game-specific attachment or survival condition separately. Use the installed version's state definitions, models and game logic as appropriate.
+- Check the finished assembly, including its neighbours across edit boundaries. Preserve all partner cells and shared states when copying, rotating or mirroring. Recalculate neighbour-derived shapes while retaining intentional placement properties. For a door, also walk the approach, check headroom, and verify that the player can reach the intended room after opening it.
+- Follow the use through to its result. For a functional installation trace access, loading, output, control and servicing. For transmission, match both ports and axes at every joint and leave operating clearance. Where the result depends on the environment, check the required substrate, fluid, light, gravity, redstone signals and subsequent updates. Distinguish saved state from block-entity data, entities and scheduled ticks, and identify any startup actions.
+- Use whole-build scans to locate candidates, then inspect context before changing a pattern. If the stored state is correct but the preview is missing or distorted, trace the state's model, geometry loader, material references and any runtime-rendered parts in the installed assets. Compare an isolated cell with the installed assembly to separate rendering faults from placement errors.
+- Fix the shared construction cause and any individual conflicts. In live mode compare against a snapshot and apply only the confirmed changes with a revision guard. Re-read the exported states, recheck routes or interfaces affected, and inspect representative close-ups. Report what was checked statically and which behaviours were observed in game.
 
 ## Help open the webpage
 
@@ -71,6 +71,8 @@ The local page is <http://127.0.0.1:5173>, served by this checkout's Vite proces
 - Use `schematic_open(target:"browser")` to send a local schematic to the page, including when its file picker is unavailable.
 
 Discover actual Minecraft versions and mod JARs with resources before loading them. Custom paths use `MINECRAFT_DIR` and `MINECRAFT_INSTANCES`; Windows also supports ignored `local-server.local.json`.
+
+Offer discovered instance names/versions for selection. If the intended instance is missing, ask for the launcher and instance name or folder path, suggesting its “Open instance folder” action. Reuse known paths. Inspect the supplied directory to derive the Minecraft root containing `versions` and the parent containing modded instances, then verify discovery. Explain which folder is needed instead of asking the user to guess variable names.
 
 ## Boundaries
 

@@ -12,6 +12,7 @@
 import type { Build } from "../core/model";
 import type { Box } from "../core/region";
 import { DIR_VECTORS, type BakedPalette, type BakedQuad } from "./bake";
+import { connectedTextureIndex } from "./connectedTexture";
 
 export interface MeshData {
   positions: Float32Array;
@@ -144,21 +145,24 @@ export function meshRegion(
         const block = blocks[value];
         if (block === undefined || block.empty) continue;
 
-        const target = buffers[block.layer];
         const blockIndex = row + x;
-        const applyAo = block.ao;
 
-        const emit = (quads: BakedQuad[]) => {
+        const emit = (quads: BakedQuad[], fluid = false) => {
+          const target = buffers[fluid ? 2 : block.layer];
+          const applyAo = !fluid && block.ao;
           for (let qi = 0; qi < quads.length; qi++) {
             const quad = quads[qi];
 
             if (quad.cull >= 0) {
               const dir = DIR_VECTORS[quad.cull];
+              if (fluid && block.occludes[quad.cull]) continue;
               const neighbour = at(x + dir[0], y + dir[1], z + dir[2]);
               if (neighbour !== 0 && blocks[neighbour] !== undefined) {
                 // `cull ^ 1` is the opposite direction — the neighbour's face
                 // that would sit against this one.
                 if (blocks[neighbour].occludes[quad.cull ^ 1]) continue;
+                if (fluid && blocks[neighbour].water) continue;
+                if (!fluid && block.connected && quad.edge && build.palette[value].name === build.palette[neighbour].name) continue;
                 // A run of glass hides its own interior faces the way vanilla does.
                 if (neighbour === value && block.layer === 2) continue;
               }
@@ -174,16 +178,28 @@ export function meshRegion(
             const layerIds = target.layerIds;
 
             const aoDir = DIR_VECTORS[quad.dir];
+            let textureLayer = quad.layer;
+            const rule = aoDir[1] ? block.connected?.cap : block.connected?.side;
+            if (rule && !fluid && quad.edge && quad.layer === rule.original) {
+              const name = build.palette[value].name;
+              const sameAt = (dx: number, dy: number, dz: number) =>
+                build.palette[build.at(x + dx, y + dy, z + dz)].name === name;
+              textureLayer = rule.tiles[connectedTextureIndex(rule.type, quad.dir, sameAt)];
+            }
+            // A partial solid's own wood/stone face wins the depth test wherever
+            // it covers the fluid. Leave tangential extents intact across cells.
+            const inset = fluid && block.parts.length > 0 ? 0.001 : 0;
+            const ox = x - inset * aoDir[0], oy = y - inset * aoDir[1], oz = z - inset * aoDir[2];
             const nx = x + aoDir[0], ny = y + aoDir[1], nz = z + aoDir[2];
             const axes = AO_AXES[quad.dir];
 
             for (let c = 0; c < 4; c++) {
-              positions[p + c * 3] = x + quad.pos[c * 3];
-              positions[p + c * 3 + 1] = y + quad.pos[c * 3 + 1];
-              positions[p + c * 3 + 2] = z + quad.pos[c * 3 + 2];
+              positions[p + c * 3] = ox + quad.pos[c * 3];
+              positions[p + c * 3 + 1] = oy + quad.pos[c * 3 + 1];
+              positions[p + c * 3 + 2] = oz + quad.pos[c * 3 + 2];
               uvs[t + c * 2] = quad.uv[c * 2];
               uvs[t + c * 2 + 1] = quad.uv[c * 2 + 1];
-              layerIds[q * 4 + c] = quad.layer;
+              layerIds[q * 4 + c] = textureLayer;
 
               let shade = quad.shade;
               if (applyAo && quad.edge) {
@@ -222,6 +238,7 @@ export function meshRegion(
             emit(options[hash % options.length]);
           }
         }
+        if (block.water) emit(block.water, true);
       }
     }
   }

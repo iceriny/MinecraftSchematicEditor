@@ -5,8 +5,8 @@
  * layout, so one loader reads both. Nothing from either is bundled with this
  * app — the user supplies their own copy.
  *
- * Only the block-rendering assets are unpacked; a 30 MB client jar is mostly
- * sounds, GUI art and item models we never touch.
+ * Model definitions are shared by blockstates and item rest poses. Sounds
+ * and GUI artwork stay in the archive.
  *
  * A mod jar has the same layout under its own namespace, so it loads through
  * the same path and is layered over the vanilla pack. That is why every key
@@ -15,6 +15,9 @@
  */
 
 import { unzip } from "fflate";
+import { WINDOW_SHIFTS, hasWoodenWindowFactory, woodenWindowSprites } from "./connectedWindows";
+import { isCreateCtBindingClass, readCreateCtBindings, type CtFaceBinding } from "./createCtBindings";
+import { readCreateCtSprites, type CreateCtSprite } from "./createCtSprites";
 
 export interface BlockstateDef {
   variants?: Record<string, VariantDef | VariantDef[]>;
@@ -64,6 +67,10 @@ export interface ElementDef {
 
 export interface ModelDef {
   parent?: string;
+  overrides?: unknown[];
+  loader?: string;
+  model?: string;
+  flip_v?: boolean;
   ambientocclusion?: boolean;
   textures?: Record<string, string>;
   elements?: ElementDef[];
@@ -75,6 +82,14 @@ export interface ResourcePack {
   blockstates: Map<string, BlockstateDef>;
   /** Keyed by namespaced resource path, e.g. `minecraft:block/stairs`. */
   models: Map<string, ModelDef>;
+  /** Namespaced model-family hints from typed block-entity renderers in mod jars. */
+  rendererFamilies: Set<string>;
+  /** OBJ geometry and its material library, resolved across the full pack stack. */
+  wavefront: Map<string, string>;
+  /** Window models supplied by Create's wooden window factory in the mod jar. */
+  verticalWindows: Set<string>;
+  ctBindings: Map<string, CtFaceBinding>;
+  ctSprites: Map<string, CreateCtSprite>;
   /** PNG bytes keyed like models, e.g. `minecraft:block/oak_planks`. */
   textures: Map<string, Uint8Array>;
   /** Frame count for animated textures, keyed the same way. */
@@ -89,7 +104,8 @@ export interface ResourcePack {
 }
 
 const BLOCKSTATE = /^assets\/([^/]+)\/blockstates\/(.+)\.json$/;
-const MODEL = /^assets\/([^/]+)\/models\/(block\/.+)\.json$/;
+const MODEL = /^assets\/([^/]+)\/models\/((?:block|item)\/.+)\.json$/;
+const WAVEFRONT = /^assets\/([^/]+)\/(models\/block\/.+\.(?:obj|mtl))$/;
 const TEXTURE = /^assets\/([^/]+)\/textures\/(block\/.+)\.png$/;
 const TEXTURE_META = /^assets\/([^/]+)\/textures\/(block\/.+)\.png\.mcmeta$/;
 
@@ -134,17 +150,40 @@ async function unpackAssets(
   bytes: Uint8Array,
   name: string,
   includeMods: boolean,
+  rendererFamilies: Set<string>,
 ): Promise<Record<string, Uint8Array>> {
   const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
     unzip(bytes, {
-      filter: ({ name: path }) => BLOCKSTATE.test(path) || MODEL.test(path) ||
+      filter: ({ name: path }) => BLOCKSTATE.test(path) || MODEL.test(path) || WAVEFRONT.test(path) ||
         TEXTURE.test(path) || TEXTURE_META.test(path) ||
-        (includeMods && (path === JARJAR_METADATA || JARJAR_MEMBER.test(path))),
+        (includeMods && (path === JARJAR_METADATA || JARJAR_MEMBER.test(path) ||
+          path.endsWith("Renderer.class") || isCreateCtBindingClass(path) || path === WINDOW_SHIFTS)),
     }, (error, entries) => {
       if (error) reject(new Error(`${name} isn't a readable zip. Point at a Minecraft client .jar or a resource pack .zip.`, { cause: error }));
       else resolve(entries);
     });
   });
+  // A typed renderer is evidence of additional world geometry. Read only its
+  // ASCII type descriptors; never execute mod code or retain its class files.
+  const families = new Set<string>();
+  const namespaces = new Set<string>();
+  for (const [path, data] of Object.entries(files)) {
+    const ns = BLOCKSTATE.exec(path)?.[1];
+    if (ns) namespaces.add(ns);
+    if (!path.endsWith("Renderer.class")) continue;
+    delete files[path];
+    if (data[0] !== 0xca || data[1] !== 0xfe || data[2] !== 0xba || data[3] !== 0xbe) continue;
+    const code = new TextDecoder("latin1").decode(data);
+    if (!code.includes("net/minecraft/client/renderer/blockentity/BlockEntityRenderer")) continue;
+    for (const [, type] of code.matchAll(/\(L[\w$/]+\/(\w+);/g)) {
+      const stem = /^(?:Tile(?:Entity)?(\w+)|(\w+)BlockEntity)$/.exec(type);
+      if (!stem) continue;
+      const family = stem[1] || stem[2];
+      if (path.endsWith("/" + family + "Renderer.class") || path.endsWith("/" + type + "Renderer.class"))
+        families.add(family.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase());
+    }
+  }
+  for (const ns of namespaces) for (const family of families) rendererFamilies.add(ns + ":" + family);
   const metadata = files[JARJAR_METADATA];
   if (!metadata) return files;
 
@@ -156,7 +195,7 @@ async function unpackAssets(
     for (const entry of manifest.jars) {
       const path = entry?.path;
       if (typeof path === "string" && JARJAR_MEMBER.test(path) && files[path]) {
-        Object.assign(nested, await unpackAssets(files[path], path, true));
+        Object.assign(nested, await unpackAssets(files[path], path, true, rendererFamilies));
       }
     }
   }
@@ -172,11 +211,17 @@ export async function loadPackBytes(
   bytes: Uint8Array,
   role: PackRole = "pack",
 ): Promise<ResourcePack> {
-  const files = await unpackAssets(bytes, packName, role === "mod");
+  const rendererFamilies = new Set<string>();
+  const files = await unpackAssets(bytes, packName, role === "mod", rendererFamilies);
   const pack: ResourcePack = {
     name: packName,
     blockstates: new Map(),
     models: new Map(),
+    rendererFamilies,
+    wavefront: new Map(),
+    verticalWindows: new Set(),
+    ctBindings: readCreateCtBindings(files),
+    ctSprites: readCreateCtSprites(files),
     textures: new Map(),
     animated: new Set(),
     namespaces: [],
@@ -203,6 +248,11 @@ export async function loadPackBytes(
       if (def) pack.models.set(`${match[1]}:${match[2]}`, def);
       continue;
     }
+    match = WAVEFRONT.exec(path);
+    if (match) {
+      pack.wavefront.set(`${match[1]}:${match[2]}`, new TextDecoder().decode(entry));
+      continue;
+    }
     match = TEXTURE.exec(path);
     if (match) {
       pack.textures.set(`${match[1]}:${match[2]}`, entry);
@@ -212,6 +262,12 @@ export async function loadPackBytes(
     if (match) {
       const meta = decodeJson<{ animation?: unknown }>(entry, path);
       if (meta?.animation !== undefined) pack.animated.add(`${match[1]}:${match[2]}`);
+    }
+  }
+
+  if (hasWoodenWindowFactory(files)) {
+    for (const id of pack.blockstates.keys()) {
+      if (woodenWindowSprites(pack, id)) pack.verticalWindows.add(id);
     }
   }
 
@@ -311,6 +367,11 @@ export function layerPacks(base: ResourcePack, over: ResourcePack): ResourcePack
     name: `${over.name} over ${base.name}`,
     blockstates: new Map(base.blockstates),
     models: new Map(base.models),
+    rendererFamilies: new Set([...base.rendererFamilies, ...over.rendererFamilies]),
+    wavefront: new Map(base.wavefront),
+    verticalWindows: new Set([...base.verticalWindows, ...over.verticalWindows]),
+    ctBindings: new Map([...base.ctBindings, ...over.ctBindings]),
+    ctSprites: new Map([...base.ctSprites, ...over.ctSprites]),
     textures: new Map(base.textures),
     animated: new Set(base.animated),
     namespaces: [...base.namespaces],
@@ -318,6 +379,7 @@ export function layerPacks(base: ResourcePack, over: ResourcePack): ResourcePack
   };
   for (const [key, value] of over.blockstates) merged.blockstates.set(key, value);
   for (const [key, value] of over.models) merged.models.set(key, value);
+  for (const [key, value] of over.wavefront) merged.wavefront.set(key, value);
   for (const [key, value] of over.textures) merged.textures.set(key, value);
   for (const key of over.animated) merged.animated.add(key);
   for (const namespace of over.namespaces) {

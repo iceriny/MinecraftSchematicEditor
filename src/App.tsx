@@ -61,6 +61,15 @@ export default function App() {
   const [dropTab, setDropTab] = useState(false);
 
   useEffect(() => {
+    const onContextMenu = (event: MouseEvent) => {
+      if (event.target instanceof Element && event.target.closest("[data-native-context-menu]")) return;
+      event.preventDefault();
+    };
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => document.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;

@@ -15,12 +15,16 @@
 import * as THREE from "three";
 import { baseName, type BlockState, type Build } from "../core/model";
 import { FULL_BOX, lookFor, type Box } from "../core/blockLook";
-import type { ElementDef, FaceName, ResourcePack } from "../assets/pack";
+import { qualify, type ElementDef, type FaceName, type ResourcePack } from "../assets/pack";
 import {
   particleTexture, resolveState, resolveTexture, type FlatModel, type Placement,
 } from "../assets/modelResolver";
 import { GRAIN_LAYER, TextureArrayBuilder } from "../assets/textures";
+import { squarePngSize, woodenWindowSprites } from "../assets/connectedWindows";
+import type { CreateCtSprite } from "../assets/createCtSprites";
+import { CT_SHEET_SIZE, type CTType } from "./connectedTexture";
 import { tintFor } from "./tint";
+import type { MeshFace } from "../assets/wavefront";
 
 /** Direction indices used everywhere downstream. */
 export const EAST = 0, WEST = 1, UP = 2, DOWN = 3, SOUTH = 4, NORTH = 5;
@@ -69,11 +73,15 @@ export interface BakedQuad {
 /** 0 opaque, 1 alpha-tested cutout, 2 blended. */
 export type RenderLayer = 0 | 1 | 2;
 
+type FaceTextureRule = { original: number; type: CTType; tiles: number[] };
 export interface BakedBlock {
+  connected?: { side?: FaceTextureRule; cap?: FaceTextureRule };
   /** One list per part; a fence is a post plus one side per connection. */
   parts: BakedQuad[][][];
   /** Fast path: every part has a single option, already concatenated. */
   single: BakedQuad[] | null;
+  /** A shared, separately blended fluid surface for this cell. */
+  water?: BakedQuad[];
   /** Per direction: does this block hide the neighbour's face there? */
   occludes: Uint8Array;
   layer: RenderLayer;
@@ -270,6 +278,22 @@ function bakeElement(
   }
 }
 
+/** OBJ coordinates already use blocks as units. Keep geometry extending outside the hub. */
+function bakeMeshFace(face: MeshFace, placement: Placement, layer: number): BakedQuad {
+  const pos = new Float32Array(12);
+  for (let i = 0; i < 4; i++) {
+    const point = face.positions[i].map(n => n - .5);
+    rotateX(point, placement.x);
+    rotateY(point, placement.y);
+    for (let j = 0; j < 3; j++) pos[i * 3 + j] = point[j] + .5;
+  }
+  const ab = [pos[3]-pos[0], pos[4]-pos[1], pos[5]-pos[2]];
+  const ac = [pos[6]-pos[0], pos[7]-pos[1], pos[8]-pos[2]];
+  const dir = snapDirection([ab[1]*ac[2]-ab[2]*ac[1], ab[2]*ac[0]-ab[0]*ac[2], ab[0]*ac[1]-ab[1]*ac[0]]);
+  return {pos, uv: new Float32Array(face.uv.flat()), layer, dir, cull: -1, edge: false,
+    shade: DIR_SHADE[dir], tr: 1, tg: 1, tb: 1};
+}
+
 /** True when the quad covers its whole boundary square. */
 function coversFace(quad: BakedQuad): boolean {
   if (!quad.edge) return false;
@@ -347,6 +371,21 @@ function fluidModel(texture: string): FlatModel {
   return boxModel(texture, [FULL_BOX]);
 }
 
+/** The vanilla fluid renderer supplies both the standalone and contained water. */
+function bakeWater(pack: ResourcePack, textures: TextureArrayBuilder): BakedQuad[] {
+  const still = "minecraft:block/water_still";
+  const flow = "minecraft:block/water_flow";
+  const model = fluidModel(still);
+  if (pack.textures.has(flow)) {
+    for (const side of ["north", "south", "east", "west"] as const) {
+      model.elements[0].faces[side]!.texture = flow;
+    }
+  }
+  const quads: BakedQuad[] = [];
+  bakeElement(model.elements[0], { model, x: 0, y: 0, uvlock: false }, model, textures, tintFor("minecraft:water"), quads);
+  return quads;
+}
+
 /**
  * A model built from the built-in box table and painted with one texture, for
  * the blocks the pack describes but never draws — the block entities. It gives
@@ -397,11 +436,35 @@ function isBlended(id: string): boolean {
   return BLENDED.has(id) || id.endsWith("stained_glass") || id.endsWith("stained_glass_pane");
 }
 
+function bakeConnected(pack: ResourcePack, id: string, textures: TextureArrayBuilder): BakedBlock["connected"] {
+  function bakeShift(sprite?: CreateCtSprite): FaceTextureRule | undefined {
+    if (!sprite || !Object.hasOwn(CT_SHEET_SIZE, sprite.type) || !pack.textures.has(sprite.original) ||
+        pack.animated.has(sprite.original) || pack.animated.has(sprite.target)) return;
+    const type = sprite.type as CTType;
+    const columns = CT_SHEET_SIZE[type];
+    const size = squarePngSize(pack.textures.get(sprite.target));
+    if (!size || size % columns) return;
+    return { type, original: textures.layerFor(sprite.original),
+      tiles: textures.tileLayers(sprite.target, sprite.original, columns) };
+  }
+  const binding = pack.ctBindings.get(id);
+  if (binding) {
+    const side = bakeShift(pack.ctSprites.get(binding.side));
+    const cap = binding.cap === binding.side ? side : binding.cap ? bakeShift(pack.ctSprites.get(binding.cap)) : undefined;
+    if (side || cap) return { side, cap };
+  }
+  if (pack.verticalWindows.has(id)) {
+    const wood = woodenWindowSprites(pack, id);
+    if (wood) return { side: bakeShift({ original: wood.side, target: wood.atlas, type: "VERTICAL" }) };
+  }
+}
+
 export async function bakePalette(build: Build, pack: ResourcePack | null): Promise<BakedPalette> {
   const textures = new TextureArrayBuilder(pack);
   const modelCache = new Map<string, FlatModel>();
   const blocks: BakedBlock[] = [];
   const missing: string[] = [];
+  let waterSurface: BakedQuad[] | undefined;
   let textured = false;
 
   for (let i = 0; i < build.palette.length; i++) {
@@ -416,6 +479,24 @@ export async function bakePalette(build: Build, pack: ResourcePack | null): Prom
 
     const id = baseName(state.name);
     let resolved = pack ? resolveState(pack, state, modelCache) : null;
+
+    // Bubble columns, for example, reference the same empty model as water.
+    // An explicit model supplied by a resource pack takes precedence.
+    const defaultModel = pack?.blockstates.get(state.name)?.variants?.[""];
+    const onlyWater = !resolved && (
+      state.name === "minecraft:water" || state.name === "minecraft:flowing_water" ||
+      (defaultModel && !Array.isArray(defaultModel) && qualify(defaultModel.model) === "minecraft:block/water")
+    );
+    let water: BakedQuad[] | undefined;
+    if ((onlyWater || state.properties?.waterlogged === "true") && pack?.textures.has("minecraft:block/water_still")) {
+      water = waterSurface ??= bakeWater(pack, textures);
+      if (onlyWater) {
+        textured = true;
+        blocks.push({ parts: [], single: [], water, occludes: new Uint8Array(6), layer: 2,
+          ao: false, empty: false, fromModel: false });
+        continue;
+      }
+    }
 
     const fluid = FLUID_TEXTURES[id];
     if (!resolved && pack && fluid && pack.textures.has(fluid)) {
@@ -438,10 +519,11 @@ export async function bakePalette(build: Build, pack: ResourcePack | null): Prom
       blocks.push({
         parts: [[fallback.quads]],
         single: fallback.quads,
+        water,
         occludes: fallback.occludes,
         layer: fallback.layer,
         ao: true,
-        empty: fallback.quads.length === 0,
+        empty: fallback.quads.length === 0 && !water,
         fromModel: false,
       });
       continue;
@@ -449,6 +531,7 @@ export async function bakePalette(build: Build, pack: ResourcePack | null): Prom
 
     textured = true;
     const tint = tintFor(state.name, state.properties);
+    const connected = pack ? bakeConnected(pack, state.name, textures) : undefined;
     const parts: BakedQuad[][][] = [];
     let ao = true;
 
@@ -458,6 +541,14 @@ export async function bakePalette(build: Build, pack: ResourcePack | null): Prom
         const quads: BakedQuad[] = [];
         for (const element of placement.model.elements) {
           bakeElement(element, placement, placement.model, textures, tint, quads);
+        }
+        for (const face of placement.model.mesh ?? []) {
+          let path = resolveTexture(placement.model.textures, face.texture);
+          // Create swaps its oak templates for the wheel's wood. A block-only
+          // schematic has no material NBT, so use the in-game default, spruce.
+          if (path && (state.name === "create:large_water_wheel" || state.name === "create:water_wheel"))
+            path = path.replace(/^minecraft:block\/oak_(planks|log|log_top)$/, "minecraft:block/spruce_$1");
+          quads.push(bakeMeshFace(face, placement, textures.layerFor(path)));
         }
         if (placement.model.ambientocclusion === false) ao = false;
         options.push(quads);
@@ -472,6 +563,8 @@ export async function bakePalette(build: Build, pack: ResourcePack | null): Prom
     blocks.push({
       parts,
       single,
+      connected,
+      water,
       occludes: new Uint8Array(6),
       layer: isBlended(id) ? 2 : 0,
       ao,
@@ -489,12 +582,16 @@ export async function bakePalette(build: Build, pack: ResourcePack | null): Prom
     const quads = block.single ?? block.parts.flatMap((options) => options[0] ?? []);
     if (quads.length === 0) continue;
 
-    if (block.layer !== 2) {
-      block.layer = quads.some((quad) => !built.opaque[quad.layer]) ? 1 : 0;
-    }
+    const ruleIsTransparent = (rule?: FaceTextureRule) => rule?.tiles.some(layer => !built.opaque[layer]);
+    const cutoutSide = ruleIsTransparent(block.connected?.side), cutoutCap = ruleIsTransparent(block.connected?.cap);
+    if (block.layer !== 2)
+      block.layer = quads.some((quad) => !built.opaque[quad.layer]) || cutoutSide || cutoutCap ? 1 : 0;
 
     for (const quad of quads) {
       if (quad.cull < 0 || !built.opaque[quad.layer]) continue;
+      const cap = quad.dir === UP || quad.dir === DOWN;
+      const rule = cap ? block.connected?.cap : block.connected?.side;
+      if (rule?.original === quad.layer && (cap ? cutoutCap : cutoutSide)) continue;
       if (coversFace(quad)) block.occludes[quad.cull] = 1;
     }
   }
