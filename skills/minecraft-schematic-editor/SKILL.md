@@ -49,11 +49,16 @@ One batch allows 128 operations and one million changed cells; set/paint accept 
 
 Read [workflow examples](references/workflows.md) for parameters relevant to the task.
 
-## Block-state rules
+## Block placement and behaviour rules
 
-- Write properties that express placement intent explicitly. For example, set an upright end rod to `facing=up`. A preview can supply a different fallback from the game's block-specific default.
-- Derive neighbour-dependent properties from the finished layout, including neighbours across the edit boundary. After generation, rotation or mirroring, recompute affected joins with the target version's rules. For stairs, preserve the intended facing and half while deriving the corner shape. Verify the stored states in the exported schematic.
-- For functional assemblies, trace each connection from source to load using the installed version's input faces, output faces and axes. Set orientation per component and verify each interface. Report static connectivity checks separately from operation observed in game.
+Start with the part's intended role in the build. Use the target version's state definitions and models for appearance, and its placement, survival and update logic for behaviour. Apply the following where the design depends on them.
+
+- Write intended orientation, mounting face and occupied portion of the cell explicitly. Check the actual surfaces in a section through the joint. A bottom slab occupies `[Y, Y+0.5]` and a top slab `[Y+0.5, Y+1]`. A ridge cap must meet its beam and both slopes. Preserve designed overhangs and gaps. A renderer fallback can differ from the block's game default.
+- Judge visual contact by architectural intent. An ordinary slab stays where placed even with air underneath. For blocks with attachment requirements, check their specific placement and survival conditions. A hanging lantern tests the centre of the underside directly above it. Check collision clearance and player access separately for each working position.
+- Build all cells produced by normal placement of a multi-block part. For a door, pair its lower and upper halves and keep facing, hinge and open state consistent. Rotate or mirror the entire group, including offsets, axes and handedness. Derive neighbour-dependent shapes from the final layout on both sides of edit boundaries.
+- Identify which states the world will recompute on placement, neighbour change or a later tick. Where relevant, check support and substrate, gravity, fluid containment and waterlogging, signal sources and powered states, or environmental conditions such as light. Design for the intended stable state and any required transition or startup action.
+- Trace functional assemblies from source to load, checking both faces at every interface, compatible axes and the operating space. Distinguish palette properties from block-entity data, entities and scheduled updates. Verify what the selected exporter preserves and identify any assembly, filling or activation needed in game.
+- For repeated details, check the originating pattern and its rotated or mirrored instances. Re-read the affected states and their neighbours after export. Use a close section to check contact and clearance. Record in-game behaviour as verified only when observed.
 
 ## Help open the webpage
 
