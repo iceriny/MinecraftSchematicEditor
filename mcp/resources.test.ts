@@ -1,8 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { strToU8, zipSync } from "fflate";
+import { loadPackBytes } from "../src/assets/pack";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "./server";
+
+test("mod resource loading includes declared JarJar assets and preserves outer overrides", async () => {
+  const path = "META-INF/jarjar/physics.jar";
+  const definition = "assets/physics/blockstates/rotor.json";
+  const child = zipSync({
+    [definition]: strToU8('{"variants":{"":{"model":"physics:block/old"}}}'),
+    "assets/physics/models/block/rotor.json": strToU8('{"parent":"block/cube_all"}'),
+  });
+  const ignored = zipSync({ "assets/unused/blockstates/ghost.json": strToU8("{}") });
+  const bytes = zipSync({
+    "META-INF/jarjar/metadata.json": strToU8(JSON.stringify({ jars: [{ path }] })),
+    [path]: child,
+    "META-INF/jarjar/unused.jar": ignored,
+    [definition]: strToU8('{"variants":{"":{"model":"physics:block/rotor"}}}'),
+  });
+  const pack = await loadPackBytes("bundle.jar", bytes, "mod");
+  assert.deepEqual(pack.namespaces, ["physics"]);
+  assert.deepEqual(pack.blockstates.get("physics:rotor")?.variants?.[""], { model: "physics:block/rotor" });
+  assert.deepEqual(pack.models.get("physics:block/rotor"), { parent: "block/cube_all" });
+});
 
 test("resource discovery keeps inventories compact and searches only the selected instance", async t => {
   const inventory = {

@@ -127,105 +127,117 @@ export async function loadPack(file: File, role: PackRole = "pack"): Promise<Res
   return loadPackBytes(file.name, new Uint8Array(await file.arrayBuffer()), role);
 }
 
+const JARJAR_METADATA = "META-INF/jarjar/metadata.json";
+const JARJAR_MEMBER = /^META-INF\/jarjar\/[^/]+\.jar$/;
+
+async function unpackAssets(
+  bytes: Uint8Array,
+  name: string,
+  includeMods: boolean,
+): Promise<Record<string, Uint8Array>> {
+  const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
+    unzip(bytes, {
+      filter: ({ name: path }) => BLOCKSTATE.test(path) || MODEL.test(path) ||
+        TEXTURE.test(path) || TEXTURE_META.test(path) ||
+        (includeMods && (path === JARJAR_METADATA || JARJAR_MEMBER.test(path))),
+    }, (error, entries) => {
+      if (error) reject(new Error(`${name} isn't a readable zip. Point at a Minecraft client .jar or a resource pack .zip.`, { cause: error }));
+      else resolve(entries);
+    });
+  });
+  const metadata = files[JARJAR_METADATA];
+  if (!metadata) return files;
+
+  // NeoForge dependencies are full mod jars. Merge their assets in declaration order,
+  // allowing the enclosing mod to replace any shared resources.
+  const manifest = decodeJson<{ jars?: { path?: string }[] }>(metadata, JARJAR_METADATA);
+  const nested: Record<string, Uint8Array> = {};
+  if (Array.isArray(manifest?.jars)) {
+    for (const entry of manifest.jars) {
+      const path = entry?.path;
+      if (typeof path === "string" && JARJAR_MEMBER.test(path) && files[path]) {
+        Object.assign(nested, await unpackAssets(files[path], path, true));
+      }
+    }
+  }
+  for (const path of Object.keys(files)) {
+    if (path === JARJAR_METADATA || JARJAR_MEMBER.test(path)) delete files[path];
+  }
+  return Object.assign(nested, files);
+}
+
 /** As {@link loadPack}, for bytes that never came from a file input. */
-export function loadPackBytes(
+export async function loadPackBytes(
   packName: string,
   bytes: Uint8Array,
   role: PackRole = "pack",
 ): Promise<ResourcePack> {
-  return new Promise<ResourcePack>((resolve, reject) => {
-    unzip(
-      bytes,
-      {
-        filter: ({ name: path }) =>
-          BLOCKSTATE.test(path) ||
-          MODEL.test(path) ||
-          TEXTURE.test(path) ||
-          TEXTURE_META.test(path),
-      },
-      (error, files) => {
-        if (error) {
-          reject(
-            new Error(
-              `${packName} isn't a readable zip. Point at a Minecraft ` +
-                `client .jar or a resource pack .zip.`,
-              { cause: error },
-            ),
-          );
-          return;
-        }
+  const files = await unpackAssets(bytes, packName, role === "mod");
+  const pack: ResourcePack = {
+    name: packName,
+    blockstates: new Map(),
+    models: new Map(),
+    textures: new Map(),
+    animated: new Set(),
+    namespaces: [],
+    counts: { blockstates: 0, models: 0, textures: 0 },
+  };
+  const seenNamespaces = new Set<string>();
 
-        const pack: ResourcePack = {
-          name: packName,
-          blockstates: new Map(),
-          models: new Map(),
-          textures: new Map(),
-          animated: new Set(),
-          namespaces: [],
-          counts: { blockstates: 0, models: 0, textures: 0 },
-        };
-        const seenNamespaces = new Set<string>();
+  for (const path of Object.keys(files)) {
+    const entry = files[path];
+    let match = BLOCKSTATE.exec(path);
+    if (match) {
+      const def = decodeJson<BlockstateDef>(entry, path);
+      if (!def) continue;
+      pack.blockstates.set(`${match[1]}:${match[2]}`, def);
+      if (!seenNamespaces.has(match[1])) {
+        seenNamespaces.add(match[1]);
+        pack.namespaces.push(match[1]);
+      }
+      continue;
+    }
+    match = MODEL.exec(path);
+    if (match) {
+      const def = decodeJson<ModelDef>(entry, path);
+      if (def) pack.models.set(`${match[1]}:${match[2]}`, def);
+      continue;
+    }
+    match = TEXTURE.exec(path);
+    if (match) {
+      pack.textures.set(`${match[1]}:${match[2]}`, entry);
+      continue;
+    }
+    match = TEXTURE_META.exec(path);
+    if (match) {
+      const meta = decodeJson<{ animation?: unknown }>(entry, path);
+      if (meta?.animation !== undefined) pack.animated.add(`${match[1]}:${match[2]}`);
+    }
+  }
 
-        for (const path of Object.keys(files)) {
-          const entry = files[path];
-          let match = BLOCKSTATE.exec(path);
-          if (match) {
-            const def = decodeJson<BlockstateDef>(entry, path);
-            if (!def) continue;
-            pack.blockstates.set(`${match[1]}:${match[2]}`, def);
-            if (!seenNamespaces.has(match[1])) {
-              seenNamespaces.add(match[1]);
-              pack.namespaces.push(match[1]);
-            }
-            continue;
-          }
-          match = MODEL.exec(path);
-          if (match) {
-            const def = decodeJson<ModelDef>(entry, path);
-            if (def) pack.models.set(`${match[1]}:${match[2]}`, def);
-            continue;
-          }
-          match = TEXTURE.exec(path);
-          if (match) {
-            pack.textures.set(`${match[1]}:${match[2]}`, entry);
-            continue;
-          }
-          match = TEXTURE_META.exec(path);
-          if (match) {
-            const meta = decodeJson<{ animation?: unknown }>(entry, path);
-            if (meta?.animation !== undefined) pack.animated.add(`${match[1]}:${match[2]}`);
-          }
-        }
+  pack.counts = {
+    blockstates: pack.blockstates.size,
+    models: pack.models.size,
+    textures: pack.textures.size,
+  };
 
-        pack.counts = {
-          blockstates: pack.blockstates.size,
-          models: pack.models.size,
-          textures: pack.textures.size,
-        };
-
-        // A mod is judged on blockstates alone: plenty of block-adding mods
-        // reuse vanilla textures, and a mod that adds no blocks at all — a HUD,
-        // a sound pack — is the case worth naming.
-        const empty =
-          role === "mod"
-            ? pack.blockstates.size === 0
-            : pack.blockstates.size === 0 || pack.textures.size === 0;
-        if (empty) {
-          reject(
-            new Error(
-              role === "mod"
-                ? `${packName} adds no blocks — nothing here to build with. ` +
-                  `Mods that only change the interface or the sounds have no block assets.`
-                : `${packName} has no block assets. A client .jar works; so does ` +
-                  `a resource pack, as long as it contains block textures.`,
-            ),
-          );
-          return;
-        }
-        resolve(pack);
-      },
+  // A mod is judged on blockstates alone: plenty of block-adding mods
+  // reuse vanilla textures, and a mod that adds no blocks at all — a HUD,
+  // a sound pack — is the case worth naming.
+  const empty =
+    role === "mod"
+      ? pack.blockstates.size === 0
+      : pack.blockstates.size === 0 || pack.textures.size === 0;
+  if (empty) {
+    throw new Error(
+      role === "mod"
+        ? `${packName} adds no blocks — nothing here to build with. ` +
+          `Mods that only change the interface or the sounds have no block assets.`
+        : `${packName} has no block assets. A client .jar works; so does ` +
+          `a resource pack, as long as it contains block textures.`,
     );
-  });
+  }
+  return pack;
 }
 
 /* ------------------------------------------------------- local discovery */
