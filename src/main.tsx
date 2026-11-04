@@ -10,6 +10,8 @@ import "./styles.css";
 
 import App from "./App";
 
+if (import.meta.env.DEV) void import("./automation/browser");
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

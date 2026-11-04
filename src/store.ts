@@ -323,6 +323,8 @@ interface State {
 }
 
 interface Actions {
+  automationAdopt: (build: Build, fileName: string | null, newTab: boolean) => void;
+  automationCommit: (label: string, indices: Uint32Array, values: Uint16Array) => void;
   attachViewer: (viewer: Viewer | null) => void;
   /** Routes a dropped file to the schematic loader or the pack loader. */
   openAny: (file: File) => Promise<void>;
@@ -1730,6 +1732,9 @@ export const useStore = create<State & Actions>((set, get) => {
       set({ texturesEnabled: enabled });
       await rebake();
     },
+
+    automationAdopt: (build, fileName, newTab) => adoptBuild(build, fileName, newTab),
+    automationCommit: (label, indices, values) => commit(label, indices, values),
 
     openFile: async (file) => {
       set({ status: "loading", error: null, fileName: file.name });

@@ -10,6 +10,7 @@
  */
 
 import type { Build } from "../core/model";
+import type { Box } from "../core/region";
 import { DIR_VECTORS, type BakedPalette, type BakedQuad } from "./bake";
 
 export interface MeshData {
@@ -103,6 +104,7 @@ export function meshRegion(
   x0: number, y0: number, z0: number,
   sx: number, sy: number, sz: number,
   yMax: number,
+  clip?: Box,
 ): ChunkMeshResult {
   const buffers = [new QuadBuffer(), new QuadBuffer(), new QuadBuffer()];
   const { width, height, length } = build;
@@ -116,19 +118,25 @@ export function meshRegion(
     solid[i] = occludes[0] && occludes[1] && occludes[2] && occludes[3] && occludes[4] && occludes[5] ? 1 : 0;
   }
 
+  // Apply the same limits to neighbor and AO samples as to emitted blocks.
+  // Otherwise a wall outside a cutaway would hide the freshly exposed face.
+  const [minX, minY, minZ] = clip?.min ?? [0, 0, 0];
+  const maxX = Math.min(width - 1, clip?.max[0] ?? width - 1);
+  const maxY = Math.min(height - 1, yMax, clip?.max[1] ?? yMax);
+  const maxZ = Math.min(length - 1, clip?.max[2] ?? length - 1);
   const at = (x: number, y: number, z: number) =>
-    x < 0 || y < 0 || z < 0 || x >= width || y >= height || z >= length || y > yMax
+    x < minX || y < minY || z < minZ || x > maxX || y > maxY || z > maxZ
       ? 0
       : data[(y * length + z) * width + x];
 
-  const xEnd = Math.min(x0 + sx, width);
-  const zEnd = Math.min(z0 + sz, length);
-  const yEnd = Math.min(y0 + sy, height, yMax + 1);
+  const xEnd = Math.min(x0 + sx, maxX + 1);
+  const zEnd = Math.min(z0 + sz, maxZ + 1);
+  const yEnd = Math.min(y0 + sy, maxY + 1);
 
-  for (let y = y0; y < yEnd; y++) {
-    for (let z = z0; z < zEnd; z++) {
+  for (let y = Math.max(y0, minY); y < yEnd; y++) {
+    for (let z = Math.max(z0, minZ); z < zEnd; z++) {
       const row = (y * length + z) * width;
-      for (let x = x0; x < xEnd; x++) {
+      for (let x = Math.max(x0, minX); x < xEnd; x++) {
         const value = data[row + x];
         if (value === 0) continue;
         // Guard against a palette that outran the bake; the viewer normally

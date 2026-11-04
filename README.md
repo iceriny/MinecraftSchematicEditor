@@ -29,6 +29,10 @@ npm run build      # production bundle in dist/
 npm run typecheck
 ```
 
+For programmatic editing, the [local MCP server](mcp/README.md) can read and
+write schematics over stdio, edit the active browser document, and render
+multi-angle or cutaway previews.
+
 ## Formats
 
 | Extension     | Written by                     | Read | Write |

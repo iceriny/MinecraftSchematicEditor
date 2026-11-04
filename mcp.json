@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "minecraft-schematic-editor": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/mcp/launch.mjs"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}
