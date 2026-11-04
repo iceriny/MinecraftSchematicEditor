@@ -46,7 +46,15 @@ Configure the [MCP connection](mcp/README.md) in your agent host separately. Liv
 After setup, the agent gives you this template. Replace the bracketed fields, and add dimensions, room requirements, or an output directory as needed.
 
 ```text
-Use [mod name] and vanilla building materials to create [building goal] in [style]. Include details, decorations, weathering, and a natural, attractive finish. You can refer to common Minecraft decoration techniques. Give it rich detail and beautiful interiors that combine practical use with good design. You can also research interior-building techniques online. Use blocks for their shapes, textures, and colors as well as their usual roles; many Minecraft interiors are assembled from combinations of blocks.
+[Project path]
+
+Use this project to create [building goal] in [style], using blocks or components from [mod name] along with vanilla building materials.
+
+Make the build natural and attractive, with rich detail, decoration, and appropriate weathering. Arrange the layout, spaces, and circulation around its intended uses, so the overall silhouette, relationships between buildings, and surrounding landscape work together.
+
+Balance appearance and practicality in both the exterior and interiors. You can reference common Minecraft decoration and interior-building techniques online. Combine blocks for their shapes, textures, and colors to build furniture, facilities, and decorations, beyond their usual roles. Functional facilities such as beds should remain usable, with room for placement, access, and interaction.
+
+Build through this project's MCP, show the result in the webpage, and use multi-angle and cutaway previews to inspect and refine it. Save the finished schematic and preview images to [output directory].
 ```
 
 For example

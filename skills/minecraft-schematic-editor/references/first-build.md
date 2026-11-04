@@ -7,11 +7,27 @@ After deployment, give the user the local URL, startup instructions, connected-p
 ## 简体中文
 
 ```text
-使用 [模组名字] 和原版建筑材料, 制作 [建筑目标], 要 [风格], 有细节, 有装饰, 有做旧, 自然且美观. 你可以参考一些常见的MC装饰技巧制作, 具有丰富的细节, 以及美观的内饰, 实用与美观结合, 同样可以参考一些网上的内饰技巧, 很多内饰技巧不一定按照方块本身的含义去使用, 而是使用其形状材质和颜色, 网上很多内饰都是靠各种方块拼出来的
+[项目路径]
+
+使用本项目制作。使用 [模组名字] 中的方块或元件，以及原版建筑材料，制作 [建筑目标]，整体采用 [风格]。
+
+建筑要自然、美观，有丰富的细节、装饰和适度做旧。根据建筑用途安排布局、空间和动线，让整体轮廓、建筑之间的关系及周边环境相互协调。
+
+外观与内饰都要兼顾美观和实用。可以参考网上常见的 Minecraft 建筑装饰和内饰技巧，利用不同方块的形状、材质与颜色进行组合，拼出家具、设施和装饰，不必局限于方块本身的用途。但床等功能性设施还应考虑实际可使用性，兼顾摆放、通行和操作空间。
+
+通过本项目的 MCP 完成制作，在网页中展示，并用多角度及剖面预览检查效果、继续调整。完成后将投影和预览图保存到 [保存目录]。
 ```
 
 ## English
 
 ```text
-Use [mod name] and vanilla building materials to create [building goal] in [style]. Include details, decorations, weathering, and a natural, attractive finish. You can refer to common Minecraft decoration techniques. Give it rich detail and beautiful interiors that combine practical use with good design. You can also research interior-building techniques online. Use blocks for their shapes, textures, and colors as well as their usual roles; many Minecraft interiors are assembled from combinations of blocks.
+[Project path]
+
+Use this project to create [building goal] in [style], using blocks or components from [mod name] along with vanilla building materials.
+
+Make the build natural and attractive, with rich detail, decoration, and appropriate weathering. Arrange the layout, spaces, and circulation around its intended uses, so the overall silhouette, relationships between buildings, and surrounding landscape work together.
+
+Balance appearance and practicality in both the exterior and interiors. You can reference common Minecraft decoration and interior-building techniques online. Combine blocks for their shapes, textures, and colors to build furniture, facilities, and decorations, beyond their usual roles. Functional facilities such as beds should remain usable, with room for placement, access, and interaction.
+
+Build through this project's MCP, show the result in the webpage, and use multi-angle and cutaway previews to inspect and refine it. Save the finished schematic and preview images to [output directory].
 ```
